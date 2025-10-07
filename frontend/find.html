@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ZeroBin • Find Donations</title>
+<link rel="stylesheet" href="assets/style.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f5f5f5; }
+header, footer { background:#fff; padding:12px 20px; box-shadow:0 2px 5px rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center; }
+main { display:flex; flex-wrap:wrap; gap:15px; padding:15px; }
+#map { flex:1 1 50%; min-height:500px; border-radius:10px; }
+.list-container { flex:1 1 45%; display:flex; flex-direction:column; }
+#filters { margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; }
+#filters button { padding:6px 12px; border:none; border-radius:6px; background:#1976d2; color:#fff; cursor:pointer; font-weight:600; }
+#filters button.active { background:#0d47a1; }
+#list { max-height:500px; overflow-y:auto; list-style:none; padding:0; display:flex; flex-direction:column; gap:15px; }
+.card { background:#fff; padding:15px; border-radius:10px; box-shadow:0 3px 6px rgba(0,0,0,0.1); position:relative; transition: all 0.3s; }
+.card.expired { opacity:0.5; background:#f8f8f8; border-left:5px solid #d32f2f; }
+.card.expiring-soon { border-left:5px solid #ff9800; background:#fff8e1; }
+.card.urgent { animation: blink 1s infinite; border-left:5px solid #ff3d00; }
+.expired-tag, .expiring-soon-tag, .bell { display:inline-block; padding:4px 8px; border-radius:6px; font-size:0.8rem; font-weight:600; margin-top:5px; }
+.expired-tag { background:#d32f2f; color:#fff; }
+.expiring-soon-tag { background:#ff9800; color:#fff; }
+.bell { margin-left:8px; font-size:1.1rem; vertical-align:middle; }
+.countdown { font-weight:600; margin-top:5px; color:#e65100; }
+@keyframes blink { 0%,50%,100% { background-color:#fff8e1; } 25%,75% { background-color:#ffebee; } }
+@media(max-width:900px){ main{flex-direction:column;} #map,.list-container{flex:1 1 100%; max-height:none;} }
+</style>
+</head>
+<body>
+<header>
+  <h1>ZeroBin</h1>
+  <nav id="navbar">
+    <a href="index.html">Home</a>
+    <a href="#" id="logoutBtn">Logout</a>
+  </nav>
+</header>
+
+<main>
+  <div id="map"></div>
+  <div class="list-container">
+    <div id="filters">
+      <button data-filter="all" class="active">All</button>
+      <button data-filter="expiring-soon">Expiring Soon</button>
+      <button data-filter="urgent">Urgent (<10 min)</button>
+      <button data-filter="expired">Expired</button>
+    </div>
+    <ul id="list"></ul>
+  </div>
+</main>
+
+<footer>
+  <small>© 2025 ZeroBin</small>
+</footer>
+
+<script>
+// 🔹 Login check
+const token = localStorage.getItem('zb_token');
+const role = localStorage.getItem('zb_role');
+if(!token || role!=='ngo'){ alert("⚠️ Only NGOs can access this page."); window.location.href="login.html"; }
+
+// 🔹 Logout
+const logoutBtn=document.getElementById("logoutBtn");
+if(logoutBtn) logoutBtn.addEventListener("click",()=>{ localStorage.removeItem('zb_token'); localStorage.removeItem('zb_role'); alert("Logged out"); window.location.href="login.html"; });
+
+// 🔹 Leaflet map
+const map = L.map('map').setView([15.85,74.5],12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'© OpenStreetMap' }).addTo(map);
+
+let allDonations = [];
+
+async function loadDonations(){
+  try{
+    const res = await fetch("http://localhost:5000/api/donations",{ headers:{ "Authorization":`Bearer ${token}` } });
+    allDonations = await res.json();
+    renderDonations('all');
+  }catch(err){ console.error(err); alert("Failed to load donations."); }
+}
+
+// 🔹 Render donations with filter
+function renderDonations(filter){
+  const list=document.getElementById("list"); list.innerHTML="";
+  const now=new Date(), oneHourLater=new Date(now.getTime()+60*60*1000);
+  const filtered = allDonations.filter(d=>d.status==='available').filter(d=>{
+    const expiry=new Date(d.expiryDate), isExpired=expiry<now, isExpiringSoon=!isExpired && expiry<=oneHourLater, isUrgent=isExpiringSoon && (expiry-now)<=10*60*1000;
+    if(filter==='all') return true;
+    if(filter==='expired') return isExpired;
+    if(filter==='expiring-soon') return isExpiringSoon && !isUrgent;
+    if(filter==='urgent') return isUrgent;
+  });
+
+  if(!filtered.length){ list.innerHTML="<li class='muted'>No donations found.</li>"; return; }
+
+  filtered.sort((a,b)=>{
+    const aExp=new Date(a.expiryDate), bExp=new Date(b.expiryDate);
+    const aExpired=aExp<now, bExpired=bExp<now;
+    const aSoon=!aExpired && aExp<=oneHourLater, bSoon=!bExpired && bExp<=oneHourLater;
+    if(aSoon && !bSoon) return -1; if(!aSoon && bSoon) return 1;
+    if(aExpired && !bExpired) return 1; if(!aExpired && bExpired) return -1;
+    return aExp-bExp;
+  });
+
+  filtered.forEach(d=>{
+    if(d.lat && d.lng) L.marker([d.lat,d.lng]).addTo(map).bindPopup(`<b>${d.title}</b><br>${d.location}`);
+    const li=document.createElement("li"); li.className="card";
+    const expiry=new Date(d.expiryDate), isExpired=expiry<now, isExpiringSoon=!isExpired && expiry<=oneHourLater, isUrgent=isExpiringSoon && (expiry-now)<=10*60*1000;
+    li.innerHTML=`
+      <h3>${d.title}</h3>
+      <p><b>Description:</b> ${d.description||"N/A"}</p>
+      <p><b>Quantity:</b> ${d.quantity||"N/A"}</p>
+      <p><b>Donor:</b> ${d.donorName||"N/A"} (${d.contact})</p>
+      <p><b>Location:</b> ${d.location}</p>
+      <p><b>Expires:</b> ${expiry.toLocaleString()}</p>
+      ${isExpired?`<span class="expired-tag">Food Expired</span>`:""}
+      ${isExpiringSoon?`<span class="expiring-soon-tag">Expiring Soon</span><p class="countdown">Time Left: <span class="time-left" data-expiry="${expiry.toISOString()}"></span></p>`:""}
+      <button class="btn claim" data-id="${d._id}">Claim</button>
+    `;
+    if(isExpired) li.classList.add("expired");
+    if(isExpiringSoon) li.classList.add("expiring-soon");
+    if(isUrgent) li.classList.add("urgent");
+    list.appendChild(li);
+  });
+
+  // Countdown & urgent bell
+  const timers=document.querySelectorAll(".time-left");
+  timers.forEach(span=>{
+    const expiryTime=new Date(span.dataset.expiry);
+    const donationCard=span.closest(".card");
+    const interval=setInterval(()=>{
+      const now=new Date(), diff=expiryTime-now;
+      if(diff<=0){ span.textContent="Expired"; donationCard.classList.remove("urgent"); donationCard.classList.add("expired"); clearInterval(interval); return; }
+      const h=Math.floor(diff/(1000*60*60)), m=Math.floor((diff%(1000*60*60))/(1000*60)), s=Math.floor((diff%(1000*60))/1000);
+      span.textContent=`${h>0?h+"h ":""}${m}m ${s}s`;
+      if(diff<=10*60*1000){ donationCard.classList.add("urgent"); if(!donationCard.querySelector(".bell")){ const bell=document.createElement("span"); bell.className="bell"; bell.innerHTML="🔔"; span.parentElement.appendChild(bell); } } else { donationCard.classList.remove("urgent"); const bell=donationCard.querySelector(".bell"); if(bell) bell.remove(); }
+    },1000);
+  });
+
+  // Claim buttons
+  document.querySelectorAll(".claim").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const id=btn.dataset.id;
+      const res=await fetch(`http://localhost:5000/api/donations/${id}/accept`,{ method:"POST", headers:{ "Authorization":`Bearer ${token}` } });
+      const result=await res.json();
+      alert(result.message||"Donation claimed!"); loadDonations();
+    });
+  });
+}
+
+// 🔹 Filter buttons
+document.querySelectorAll("#filters button").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    document.querySelectorAll("#filters button").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    renderDonations(btn.dataset.filter);
+  });
+});
+
+loadDonations();
+</script>
+</body>
+</html>

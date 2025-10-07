@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>ZeroBin • Home</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gradient-to-r from-green-50 via-green-100 to-blue-50">
+
+  <!-- Header -->
+  <header class="p-6 bg-white/60 backdrop-blur-md shadow">
+    <div class="max-w-6xl mx-auto flex items-center justify-between">
+      <div class="text-2xl font-extrabold text-green-700">ZeroBin</div>
+      <nav id="navbar" class="space-x-6 font-medium">
+        <a href="index.html" class="text-gray-700 hover:text-green-700">Home</a>
+        <a href="register.html" class="text-gray-700 hover:text-green-700">Register</a>
+        <a href="login.html" class="text-gray-700 hover:text-green-700">Login</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="max-w-6xl mx-auto p-6">
+    <!-- Hero Section -->
+    <section class="grid md:grid-cols-2 gap-10 items-center">
+      <div>
+        <h1 class="text-4xl font-bold text-green-800 mb-4 leading-snug">
+          Donate what you can't use — help those who need it
+        </h1>
+        <p class="text-gray-700 mb-6 text-lg">
+          ZeroBin connects donors with NGOs for food, clothes, and essentials. 
+          Post a donation, let an NGO accept it, and coordinate pickup easily.
+        </p>
+        <div id="actionBtn"></div>
+      </div>
+
+      <!-- Images Section -->
+      <div class="grid grid-cols-2 gap-6">
+        <!-- Card 1 -->
+        <div class="bg-white rounded-xl shadow hover:shadow-lg transition p-3 text-center">
+          <img src="images/donate.png" alt="Donation process" 
+               class="w-full h-40 object-cover rounded-lg mb-3"/>
+          <h3 class="font-semibold text-green-700">Make a Donation</h3>
+          <p class="text-sm text-gray-600">Easily donate food, clothes, and essentials.</p>
+        </div>
+
+        <!-- Card 2 -->
+        <div class="bg-white rounded-xl shadow hover:shadow-lg transition p-3 text-center">
+          <img src="images/ngo.png" alt="Community support" 
+               class="w-full h-40 object-cover rounded-lg mb-3"/>
+          <h3 class="font-semibold text-green-700">NGOs Receive Support</h3>
+          <p class="text-sm text-gray-600">NGOs find and collect donations near them.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Recent Donations -->
+    <section class="mt-12">
+      <h2 class="text-2xl font-semibold text-green-800 mb-4">Recent Donations</h2>
+      <div id="list" class="grid md:grid-cols-3 gap-6"></div>
+    </section>
+  </main>
+
+  <!-- Script -->
+  <script>
+    const token = localStorage.getItem('zb_token');
+    const role = localStorage.getItem('zb_role');
+    const navbar = document.getElementById('navbar');
+
+    // 🔹 Update navbar based on login
+    if(token){
+      navbar.innerHTML = `
+        <a href="index.html" class="hover:text-green-700">Home</a>
+        <a href="donate.html" class="hover:text-green-700">Donate</a>
+        <a href="#" id="logoutBtn" class="text-red-600 hover:underline">Logout</a>
+      `;
+      document.getElementById('logoutBtn').addEventListener('click', ()=>{
+        localStorage.removeItem('zb_token');
+        localStorage.removeItem('zb_role');
+        alert("You have been logged out.");
+        location.reload();
+      });
+    }
+
+    // 🔹 Show role-based action button
+    const actionBtn = document.getElementById('actionBtn');
+    if(token){
+      if(role === 'donor'){
+        actionBtn.innerHTML = `<a href="donate.html" class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow">Donate Now</a>`;
+      } else if(role === 'ngo'){
+        actionBtn.innerHTML = `<a href="find.html" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg shadow">Find Donations</a>`;
+      }
+    } else {
+      actionBtn.innerHTML = `
+        <a href="register.html" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg shadow">Get Started</a>
+        <a href="login.html" class="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow ml-4">Login</a>
+      `;
+    }
+
+    // 🔹 Load recent donations
+    async function loadList(){
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      try{
+        const res = await fetch('http://localhost:5000/api/donations', { 
+          headers: { Authorization: token ? `Bearer ${token}` : '' } 
+        });
+        const data = await res.json();
+        (data||[]).slice(0,6).forEach(d=>{
+          const div = document.createElement('div');
+          div.className = 'p-5 bg-white rounded-xl shadow hover:shadow-lg transition';
+          div.innerHTML = `
+            <h3 class="font-semibold text-green-700">${d.title||'Untitled'}</h3>
+            <p class="text-sm text-gray-600 mt-1">${d.description||''}</p>
+            <p class="text-xs text-gray-500 mt-2">Status: ${d.status}</p>
+          `;
+          list.appendChild(div);
+        });
+      }catch(e){ console.error(e); }
+    }
+
+    loadList();
+  </script>
+</body>
+</html>

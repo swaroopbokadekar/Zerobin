@@ -1,0 +1,1 @@
+Static frontend: open index.html or serve with http-server. Uses Tailwind CDN and Leaflet CDN.

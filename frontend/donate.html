@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ZeroBin • Donate</title>
+<link rel="stylesheet" href="assets/style.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<style>
+body { font-family: Arial, sans-serif; margin:0; padding:0; background:#f4f6f8; }
+header, footer { background:#fff; padding:12px 20px; box-shadow:0 2px 5px rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center; }
+main { display:flex; justify-content:center; padding:20px; }
+.card { background:#fff; padding:25px; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.1); max-width:600px; width:100%; }
+.card h2 { margin-bottom:20px; color:#1976d2; }
+form label { display:block; margin-bottom:15px; font-weight:600; color:#333; }
+form input, form textarea { width:100%; padding:10px; margin-top:5px; border:1px solid #ccc; border-radius:6px; font-size:1rem; box-sizing:border-box; }
+textarea { resize: vertical; min-height:80px; }
+#map, #previewMap { height:280px; border-radius:8px; margin-top:10px; margin-bottom:15px; }
+button.btn { background:#1976d2; color:#fff; padding:12px 20px; border:none; border-radius:6px; font-size:1rem; cursor:pointer; transition:0.3s; }
+button.btn:hover { background:#0d47a1; }
+#msg { margin-top:15px; font-weight:600; color:green; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ZeroBin</h1>
+  <nav id="navbar">
+    <a href="index.html">Home</a>
+    <a href="#" id="logoutBtn">Logout</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Donate an Item</h2>
+    <form id="donationForm">
+      <label for="title">Title
+        <input id="title" required placeholder="e.g., Veg Biryani / Winter Jackets"/>
+      </label>
+
+      <label for="description">Description
+        <textarea id="description" placeholder="Provide details like ingredients, condition, or special notes..."></textarea>
+      </label>
+
+      <label for="quantity">Quantity
+        <input id="quantity" placeholder="e.g., 10 plates / 5 bags"/>
+      </label>
+
+      <label for="contact">Contact Number
+        <input id="contact" type="tel" pattern="[0-9]{10}" maxlength="10" placeholder="10-digit phone number" required/>
+      </label>
+
+      <label for="donorName">Donor Name
+        <input id="donorName" required placeholder="Your full name"/>
+      </label>
+
+      <label for="location">Pickup Location
+        <input id="location" required placeholder="Click on the map to select location" readonly/>
+      </label>
+
+      <label for="expiryDate">Expires At
+      <input id="expiryDate" type="datetime-local"/>
+      </label>
+
+      <div id="map"></div>
+      <h3 style="margin-top:10px; color:#555;">Location Preview</h3>
+      <div id="previewMap"></div>
+
+  <script>
+// 🔹 Disable past date & time for expiry
+  const expiryInput = document.getElementById('expiryDate');
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  expiryInput.min = `${year}-${month}-${day}T${hours}:${minutes}`;
+  </script>
+
+
+      <button class="btn" type="submit">Submit Donation</button>
+    </form>
+    <p id="msg"></p>
+  </section>
+</main>
+
+<footer>
+  <small>© 2025 ZeroBin</small>
+</footer>
+
+<script>
+// 🔹 Login & logout
+const token = localStorage.getItem('zb_token');
+const role = localStorage.getItem('zb_role');
+if(!token || role !== 'donor'){ alert("⚠️ Only donors can access this page."); window.location.href="login.html"; }
+const logoutBtn = document.getElementById("logoutBtn");
+if(logoutBtn){ logoutBtn.addEventListener("click", ()=>{ localStorage.removeItem('zb_token'); localStorage.removeItem('zb_role'); alert("Logged out"); window.location.href="login.html"; }); }
+
+// 🔹 Main map for selecting location
+const map = L.map('map').setView([15.85,74.5],12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'© OpenStreetMap' }).addTo(map);
+
+// 🔹 Preview map
+const previewMap = L.map('previewMap',{ zoomControl:false, attributionControl:false }).setView([15.85,74.5],12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(previewMap);
+let previewMarker = null;
+
+// 🔹 Selecting location
+let marker, selectedLatLng = null;
+map.on('click', async function(e) {
+  if(marker) map.removeLayer(marker);
+  marker = L.marker(e.latlng).addTo(map);
+  selectedLatLng = e.latlng;
+
+  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${e.latlng.lat}&lon=${e.latlng.lng}&format=json`);
+  const data = await res.json();
+  document.getElementById("location").value = data.display_name;
+
+  // Update preview map
+  if(previewMarker) previewMap.removeLayer(previewMarker);
+  previewMarker = L.marker(e.latlng).addTo(previewMap);
+  previewMap.setView(e.latlng,15);
+});
+
+// 🔹 Submit donation
+document.getElementById("donationForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if(!selectedLatLng) return alert("Please select a location on the map");
+
+  const donation = {
+    title: document.getElementById("title").value,
+    description: document.getElementById("description").value,
+    quantity: document.getElementById("quantity").value,
+    contact: document.getElementById("contact").value,
+    donorName: document.getElementById("donorName").value,
+    location: document.getElementById("location").value,
+    lat: selectedLatLng.lat,
+    lng: selectedLatLng.lng,
+    expiryDate: document.getElementById("expiryDate").value
+  };
+
+  const res = await fetch("http://localhost:5000/api/donations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+    body: JSON.stringify(donation)
+  });
+  const result = await res.json();
+  document.getElementById("msg").textContent = result.message || "Donation submitted!";
+  e.target.reset();
+  if(marker) map.removeLayer(marker);
+  if(previewMarker) previewMap.removeLayer(previewMarker);
+  selectedLatLng = null;
+});
+</script>
+</body>
+</html>
